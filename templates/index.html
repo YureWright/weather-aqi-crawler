@@ -1,0 +1,1231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>空气质量与天气数据爬虫</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ========== Design Tokens ========== */
+:root {
+  --bg-primary: #0b0f1a;
+  --bg-surface: #131827;
+  --bg-card: rgba(22, 30, 48, 0.75);
+  --bg-card-hover: rgba(28, 38, 60, 0.85);
+  --border: rgba(56, 72, 104, 0.3);
+  --border-focus: rgba(56, 200, 200, 0.6);
+  --text-primary: #e8edf5;
+  --text-secondary: #8b95b0;
+  --text-muted: #5a6480;
+  --accent: #38c8c8;
+  --accent-dim: rgba(56, 200, 200, 0.15);
+  --accent-glow: rgba(56, 200, 200, 0.25);
+  --success: #4ade80;
+  --error: #f87171;
+  --warning: #fbbf24;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 4px 24px rgba(0,0,0,0.3);
+  --font-sans: 'Outfit', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+/* ========== Reset & Base ========== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ========== Layout ========== */
+.app-container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 40px 24px 80px;
+}
+
+/* ========== Header ========== */
+.app-header {
+  margin-bottom: 48px;
+  text-align: center;
+}
+
+.app-header h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, #e8edf5 0%, #38c8c8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 8px;
+}
+
+.app-header .subtitle {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  font-weight: 400;
+}
+
+.app-header .subtitle span {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* ========== Card ========== */
+.card {
+  background: var(--bg-card);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 32px;
+  margin-bottom: 20px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.card:hover {
+  border-color: rgba(56, 72, 104, 0.5);
+}
+
+.card-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-title .icon {
+  font-size: 1rem;
+}
+
+/* ========== Form Elements ========== */
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.form-row.three-col {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-group label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* Tags input for cities */
+.tags-input {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  min-height: 44px;
+  cursor: text;
+  transition: border-color 0.2s;
+}
+
+.tags-input:focus-within {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  animation: tagIn 0.2s ease-out;
+}
+
+@keyframes tagIn {
+  from { transform: scale(0.85); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.tag .remove {
+  cursor: pointer;
+  font-size: 0.9rem;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+  line-height: 1;
+}
+
+.tag .remove:hover { opacity: 1; }
+
+.tags-input input {
+  flex: 1;
+  min-width: 80px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  padding: 2px 0;
+}
+
+.tags-input input::placeholder { color: var(--text-muted); }
+
+/* Dropdown for city suggestions */
+.suggestions {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 180px;
+  overflow-y: auto;
+  z-index: 10;
+  margin-top: 2px;
+}
+
+.suggestions.show { display: block; }
+
+.suggestions .item {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  transition: background 0.15s, color 0.15s;
+}
+
+.suggestions .item:hover {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.suggestions .item.highlighted {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* Select / Input */
+select, input[type="number"], input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+}
+
+select:focus, input[type="number"]:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%238b95b0' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+  cursor: pointer;
+}
+
+/* Slider with value display */
+.slider-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.slider-group input[type="range"] {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.slider-group input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  box-shadow: 0 0 8px var(--accent-glow);
+  transition: box-shadow 0.2s;
+}
+
+.slider-group input[type="range"]::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 16px var(--accent-glow);
+}
+
+.slider-value {
+  min-width: 52px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--accent);
+  padding: 4px 8px;
+  background: var(--accent-dim);
+  border-radius: 6px;
+}
+
+/* ========== Buttons ========== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 28px;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #0b0f1a;
+  width: 100%;
+}
+
+.btn-primary:hover:not(:disabled) {
+  box-shadow: 0 0 20px var(--accent-glow);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-download {
+  background: var(--accent-dim);
+  color: var(--accent);
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+
+.btn-download:hover {
+  border-color: var(--accent);
+  background: rgba(56, 200, 200, 0.2);
+}
+
+/* ========== Progress ========== */
+.progress-container {
+  margin-top: 16px;
+  opacity: 0;
+  max-height: 0;
+  overflow: hidden;
+  transition: opacity 0.4s ease, max-height 0.4s ease;
+}
+
+.progress-container.active {
+  opacity: 1;
+  max-height: 300px;
+}
+
+.progress-bar-bg {
+  width: 100%;
+  height: 6px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #6ee7e7);
+  border-radius: 3px;
+  width: 0%;
+  transition: width 0.5s ease;
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.progress-text {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  font-size: 0.82rem;
+}
+
+.progress-message {
+  color: var(--text-secondary);
+}
+
+.progress-percent {
+  font-family: var(--font-mono);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* ========== Task History ========== */
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: rgba(0,0,0,0.2);
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+
+.task-item:hover {
+  border-color: var(--border);
+}
+
+.task-item .task-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-item .task-name {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.task-item .task-meta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.task-status {
+  font-size: 0.75rem;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-weight: 500;
+}
+
+.task-status.completed { background: rgba(74, 222, 128, 0.12); color: var(--success); }
+.task-status.running { background: var(--accent-dim); color: var(--accent); }
+.task-status.failed { background: rgba(248, 113, 113, 0.12); color: var(--error); }
+.task-status.queued { background: rgba(251, 191, 36, 0.12); color: var(--warning); }
+
+.task-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ========== Status Badge ========== */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  margin-top: 12px;
+}
+
+.status-badge.idle { background: rgba(255,255,255,0.05); color: var(--text-muted); }
+.status-badge.running { background: var(--accent-dim); color: var(--accent); }
+.status-badge.done { background: rgba(74, 222, 128, 0.12); color: var(--success); }
+.status-badge.error { background: rgba(248, 113, 113, 0.12); color: var(--error); }
+
+/* ========== Empty State ========== */
+.empty-state {
+  text-align: center;
+  padding: 24px 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* ========== Responsive ========== */
+@media (max-width: 640px) {
+  .app-container { padding: 24px 16px 60px; }
+  .card { padding: 20px; }
+  .form-row { grid-template-columns: 1fr; }
+  .form-row.three-col { grid-template-columns: 1fr; }
+  .app-header h1 { font-size: 1.5rem; }
+  .task-item { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .task-actions { align-self: flex-end; }
+}
+
+/* ========== Scrollbar ========== */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ========== Animations ========== */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.card { animation: fadeIn 0.3s ease-out; }
+.card:nth-child(2) { animation-delay: 0.05s; }
+.card:nth-child(3) { animation-delay: 0.1s; }
+
+/* ========== Pulse for running indicator ========== */
+.pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: inline-block;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.3); }
+}
+
+.inline-code {
+  font-family: var(--font-mono);
+  color: var(--accent);
+  font-size: 0.8rem;
+}
+
+/* ========== Year Chips ========== */
+.year-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.year-chip {
+  padding: 6px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(0,0,0,0.2);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  user-select: none;
+  font-family: var(--font-sans);
+}
+
+.year-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.year-chip.selected {
+  background: var(--accent);
+  color: #0b0f1a;
+  border-color: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.year-chip.selected:hover {
+  opacity: 0.85;
+}
+
+/* ========== Toast ========== */
+.toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toast {
+  padding: 12px 20px;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  font-weight: 500;
+  backdrop-filter: blur(12px);
+  animation: toastIn 0.3s ease-out;
+  max-width: 400px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+  border: 1px solid;
+}
+
+.toast.success { background: rgba(74, 222, 128, 0.15); color: var(--success); border-color: rgba(74, 222, 128, 0.3); }
+.toast.warning { background: rgba(251, 191, 36, 0.15); color: var(--warning); border-color: rgba(251, 191, 36, 0.3); }
+.toast.error { background: rgba(248, 113, 113, 0.15); color: var(--error); border-color: rgba(248, 113, 113, 0.3); }
+
+@keyframes toastIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes toastOut {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(100%); opacity: 0; }
+}
+
+/* ========== Log Panel ========== */
+.log-panel {
+  margin-top: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: rgba(0,0,0,0.2);
+  display: none;
+}
+
+.log-panel.active {
+  display: block;
+}
+
+.log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(0,0,0,0.15);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.log-count {
+  font-weight: 400;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.log-body {
+  height: 200px;
+  overflow-y: auto;
+  padding: 6px 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.log-body::-webkit-scrollbar { width: 4px; }
+.log-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.log-entry {
+  padding: 2px 12px;
+  white-space: nowrap;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.log-entry .log-time {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  font-size: 0.7rem;
+}
+
+.log-entry .log-level {
+  flex-shrink: 0;
+  font-weight: 600;
+  font-size: 0.65rem;
+  padding: 0 4px;
+  border-radius: 3px;
+  min-width: 36px;
+  text-align: center;
+}
+
+.log-level.INFO    { color: var(--accent); background: var(--accent-dim); }
+.log-level.WARNING { color: var(--warning); background: rgba(251,191,36,0.12); }
+.log-level.ERROR   { color: var(--error); background: rgba(248,113,113,0.12); }
+
+.log-entry .log-msg {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+</style>
+</head>
+<body>
+
+<div class="app-container">
+
+  <!-- Toast container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Header -->
+  <header class="app-header">
+    <h1>空气质量 · 天气数据爬虫</h1>
+    <p class="subtitle">从 <span>tianqihoubao.com</span> 采集 AQI 与天气数据，一键导出 Excel</p>
+  </header>
+
+  <!-- 配置面板 -->
+  <div class="card">
+    <div class="card-title"><span class="icon">⚙</span> 爬取配置</div>
+
+    <div class="form-row">
+      <!-- 城市选择 -->
+      <div class="form-group" style="position: relative;">
+        <label for="cityInput">城市</label>
+        <div class="tags-input" id="tagsContainer">
+          <div id="tagList" style="display: flex; flex-wrap: wrap; gap: 6px;"></div>
+          <input type="text" id="cityInput" placeholder="输入城市名称添加，支持逗号分隔粘贴" autocomplete="off">
+        </div>
+        <div class="suggestions" id="suggestions"></div>
+      </div>
+
+      <!-- 年份选择 -->
+      <div class="form-group">
+        <label>年份</label>
+        <div class="year-chips" id="yearChips"></div>
+        <div style="display: flex; gap: 8px; margin-top: 6px;">
+          <button type="button" class="btn-download" onclick="selectAllYears()" style="font-size:0.75rem;">全选</button>
+          <button type="button" class="btn-download" onclick="clearAllYears()" style="font-size:0.75rem;">清空</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-row three-col">
+      <!-- 休眠间隔 -->
+      <div class="form-group">
+        <label for="sleepSlider">爬取间隔（秒）</label>
+        <div class="slider-group">
+          <input type="range" id="sleepSlider" min="0.5" max="5" step="0.5" value="1.5">
+          <span class="slider-value" id="sleepValue">1.5s</span>
+        </div>
+      </div>
+
+      <!-- 当前选择摘要 -->
+      <div class="form-group" style="grid-column: span 2;">
+        <label>任务概要</label>
+        <div style="padding: 10px 12px; background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); font-size: 0.85rem; color: var(--text-secondary); min-height: 44px;">
+          <span id="taskSummary">请选择城市和年份</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 启动按钮 -->
+    <button class="btn btn-primary" id="startBtn" onclick="startCrawl()">
+      <span>▶</span> 开始爬取
+    </button>
+
+    <!-- 进度 -->
+    <div class="progress-container" id="progressContainer">
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progressFill"></div>
+      </div>
+      <div class="progress-text">
+        <span class="progress-message" id="progressMessage">初始化...</span>
+        <span class="progress-percent" id="progressPercent">0%</span>
+      </div>
+      <div class="status-badge idle" id="statusBadge">
+        <span class="pulse" style="display:none;"></span>
+        <span id="statusText">等待开始</span>
+      </div>
+
+      <!-- 日志面板 -->
+      <div class="log-panel" id="logPanel">
+        <div class="log-header">
+          <span>📋 运行日志</span>
+          <span class="log-count" id="logCount">0 条</span>
+        </div>
+        <div class="log-body" id="logBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 任务记录 -->
+  <div class="card">
+    <div class="card-title"><span class="icon">📋</span> 任务记录</div>
+    <div id="taskListContainer">
+      <div class="empty-state">暂无任务记录</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ==================== 数据 ====================
+const AVAILABLE_CITIES = {{ cities | tojson }};
+let allCities = [...AVAILABLE_CITIES];
+let selectedCities = [];
+let pollTimer = null;
+
+// ==================== 城市标签输入 ====================
+const tagsContainer = document.getElementById('tagsContainer');
+const cityInput = document.getElementById('cityInput');
+const tagList = document.getElementById('tagList');
+const suggestions = document.getElementById('suggestions');
+
+cityInput.addEventListener('input', function() {
+  const val = this.value.trim();
+  if (!val) { suggestions.classList.remove('show'); return; }
+  const filtered = allCities.filter(c =>
+    c.includes(val) && !selectedCities.includes(c)
+  );
+  suggestions.innerHTML = filtered.map(c =>
+    `<div class="item" onclick="addCity('${c}')">${c}</div>`
+  ).join('');
+  suggestions.classList.toggle('show', filtered.length > 0);
+});
+
+// 支持批量粘贴：按行/逗号/空格分割，自动从每段文字中提取已知城市名
+cityInput.addEventListener('paste', function(e) {
+  e.preventDefault();
+  const pasted = (e.clipboardData || window.clipboardData).getData('text');
+
+  // 先按换行分割，每行再按分隔符分割，得到所有原始 token
+  const rawTokens = pasted.split(/\n+/).flatMap(line =>
+    line.split(/[,，、\t;；]+/).map(s => s.trim()).filter(Boolean)
+  );
+
+  // 每个 token 找城市：精确匹配 > 子串匹配
+  const found = [];
+  const notFound = [];
+  const seen = new Set(selectedCities);
+
+  for (const token of rawTokens) {
+    // 精确匹配
+    if (allCities.includes(token)) {
+      if (!seen.has(token)) { found.push(token); seen.add(token); }
+      continue;
+    }
+    // 子串匹配：从 token 中提取已知城市名（如 "2.王妙乐天津" → "天津"）
+    const matched = allCities.find(c => token.includes(c));
+    if (matched && !seen.has(matched)) {
+      found.push(matched);
+      seen.add(matched);
+      continue;
+    }
+    // 仍不匹配，记录
+    if (token.length >= 2) notFound.push(token);
+  }
+
+  // 批量添加找到的城市（只做一次 UI 更新）
+  if (found.length > 0) {
+    selectedCities = [...seen];
+    renderTags();
+    updateSummary();
+  }
+
+  // 清理输入框
+  this.value = '';
+
+  // 反馈
+  const total = rawTokens.length;
+  if (found.length > 0) {
+    const msg = `已添加 ${found.length} 个城市` + (notFound.length > 0 ? `，${notFound.length} 项未识别（${notFound.join('、')}）` : '');
+    showToast(msg, notFound.length > 0 ? 'warning' : 'success');
+  } else if (total > 0) {
+    showToast('未识别到任何城市，请检查输入', 'error');
+    this.value = pasted;  // 放回输入框方便编辑
+  }
+});
+
+cityInput.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const val = this.value.trim();
+    const first = suggestions.querySelector('.item');
+    if (first) {
+      addCity(first.textContent);
+    } else if (val && allCities.includes(val) && !selectedCities.includes(val)) {
+      addCity(val);
+    }
+    this.value = '';
+    suggestions.classList.remove('show');
+  }
+  if (e.key === 'Backspace' && this.value === '' && selectedCities.length > 0) {
+    removeCity(selectedCities[selectedCities.length - 1]);
+  }
+});
+
+document.addEventListener('click', function(e) {
+  if (!tagsContainer.contains(e.target)) {
+    suggestions.classList.remove('show');
+  }
+});
+
+function addCity(city) {
+  if (selectedCities.includes(city)) return;
+  selectedCities.push(city);
+  renderTags();
+  cityInput.value = '';
+  suggestions.classList.remove('show');
+  cityInput.focus();
+  updateSummary();
+}
+
+function removeCity(city) {
+  selectedCities = selectedCities.filter(c => c !== city);
+  renderTags();
+  updateSummary();
+}
+
+function renderTags() {
+  tagList.innerHTML = selectedCities.map(c =>
+    `<span class="tag">${c}<span class="remove" onclick="removeCity('${c}')">×</span></span>`
+  ).join('');
+}
+
+// ==================== 年份选择（chip 模式） ====================
+const yearChipsContainer = document.getElementById('yearChips');
+let selectedYears = [];
+
+function initYearChips() {
+  const cy = new Date().getFullYear();
+  yearChipsContainer.innerHTML = '';
+  for (let y = 2014; y <= cy; y++) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'year-chip';
+    chip.dataset.year = y;
+    chip.textContent = y + '年';
+    chip.addEventListener('click', function() {
+      const year = parseInt(this.dataset.year);
+      const idx = selectedYears.indexOf(year);
+      if (idx >= 0) {
+        selectedYears.splice(idx, 1);
+        this.classList.remove('selected');
+      } else {
+        selectedYears.push(year);
+        selectedYears.sort((a, b) => a - b);
+        this.classList.add('selected');
+      }
+      updateSummary();
+    });
+    yearChipsContainer.appendChild(chip);
+  }
+}
+
+function getSelectedYears() {
+  return [...selectedYears];
+}
+
+function selectAllYears() {
+  selectedYears = [];
+  const chips = yearChipsContainer.querySelectorAll('.year-chip');
+  chips.forEach(chip => {
+    chip.classList.add('selected');
+    selectedYears.push(parseInt(chip.dataset.year));
+  });
+  updateSummary();
+}
+
+function clearAllYears() {
+  selectedYears = [];
+  yearChipsContainer.querySelectorAll('.year-chip').forEach(chip => chip.classList.remove('selected'));
+  updateSummary();
+}
+
+// ==================== 休眠滑块 ====================
+const sleepSlider = document.getElementById('sleepSlider');
+const sleepValue = document.getElementById('sleepValue');
+
+sleepSlider.addEventListener('input', function() {
+  sleepValue.textContent = parseFloat(this.value).toFixed(1) + 's';
+});
+
+// ==================== 任务概要 ====================
+function updateSummary() {
+  const cities = selectedCities;
+  const years = getSelectedYears();
+  const summary = document.getElementById('taskSummary');
+
+  if (cities.length === 0 && years.length === 0) {
+    summary.textContent = '请选择城市和年份';
+    return;
+  }
+  const cityText = cities.length > 0 ? cities.join('、') : '（未选）';
+  const yearText = years.length > 0 ? years.join('、') : '（未选）';
+  const total = cities.length * years.length;
+  summary.innerHTML = `<strong>${cities.length}</strong> 个城市 × <strong>${years.length}</strong> 个年份 = <strong>${total}</strong> 个任务 &nbsp;·&nbsp; 城市: ${cityText} &nbsp;·&nbsp; 年份: ${yearText}`;
+}
+
+// ==================== 启动爬虫 ====================
+function startCrawl() {
+  const cities = selectedCities;
+  const years = getSelectedYears();
+  const sleepInterval = parseFloat(sleepSlider.value);
+
+  if (cities.length === 0) { alert('请选择至少一个城市'); return; }
+  if (years.length === 0) { alert('请选择至少一个年份'); return; }
+
+  const btn = document.getElementById('startBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="pulse"></span> 爬取中...';
+
+  // 显示进度和日志面板
+  const pc = document.getElementById('progressContainer');
+  pc.classList.add('active');
+  const logPanel = document.getElementById('logPanel');
+  logPanel.classList.add('active');
+  const logBody = document.getElementById('logBody');
+  logBody.innerHTML = '';
+  logBody.dataset.count = '0';
+  document.getElementById('logCount').textContent = '0 条';
+
+  const badge = document.getElementById('statusBadge');
+  badge.className = 'status-badge running';
+  document.getElementById('statusText').innerHTML = '<span class="pulse"></span> 爬取中...';
+
+  fetch('/api/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cities, years, sleep_interval: sleepInterval }),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) { throw new Error(data.error); }
+    pollTask(data.task_id);
+  })
+  .catch(err => {
+    setFailed(err.message);
+    btn.disabled = false;
+    btn.innerHTML = '<span>▶</span> 开始爬取';
+  });
+}
+
+function pollTask(taskId) {
+  let failedCount = 0;
+
+  pollTimer = setInterval(() => {
+    fetch(`/api/status/${taskId}`)
+      .then(r => r.json())
+      .then(data => {
+        failedCount = 0;
+        updateProgress(data);
+
+        if (data.status === 'completed') {
+          clearInterval(pollTimer);
+          pollTimer = null;
+          setComplete(data);
+        } else if (data.status === 'failed') {
+          clearInterval(pollTimer);
+          pollTimer = null;
+          setFailed(data.message);
+        }
+      })
+      .catch(() => {
+        failedCount++;
+        if (failedCount > 10) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+          setFailed('连接服务器失败');
+        }
+      });
+  }, 800);
+}
+
+function updateProgress(data) {
+  document.getElementById('progressFill').style.width = data.progress + '%';
+  document.getElementById('progressPercent').textContent = data.progress + '%';
+  document.getElementById('progressMessage').textContent = data.message;
+
+  const badge = document.getElementById('statusBadge');
+  const st = document.getElementById('statusText');
+  badge.className = 'status-badge running';
+  st.innerHTML = `<span class="pulse"></span> ${data.progress}% · ${data.message}`;
+
+  // 渲染日志
+  if (data.logs && data.logs.length > 0) {
+    renderLogs(data.logs);
+  }
+}
+
+function renderLogs(logs) {
+  const logBody = document.getElementById('logBody');
+  const logCount = document.getElementById('logCount');
+  const prevCount = parseInt(logBody.dataset.count || '0');
+
+  if (logs.length <= prevCount) return;
+
+  logCount.textContent = logs.length + ' 条';
+
+  // 只追加新增的日志条目
+  const fragment = document.createDocumentFragment();
+  for (let i = prevCount; i < logs.length; i++) {
+    const entry = logs[i];
+    const div = document.createElement('div');
+    div.className = 'log-entry';
+    div.innerHTML = `
+      <span class="log-time">${escapeHtml(entry.time)}</span>
+      <span class="log-level ${entry.level}">${entry.level}</span>
+      <span class="log-msg">${escapeHtml(entry.message)}</span>
+    `;
+    fragment.appendChild(div);
+  }
+  logBody.appendChild(fragment);
+  logBody.dataset.count = logs.length;
+
+  // 自动滚动到底部
+  logBody.scrollTop = logBody.scrollHeight;
+}
+
+function escapeHtml(text) {
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
+}
+
+function setComplete(data) {
+  document.getElementById('progressFill').style.width = '100%';
+  document.getElementById('progressPercent').textContent = '100%';
+  document.getElementById('progressMessage').textContent = data.message;
+
+  const badge = document.getElementById('statusBadge');
+  badge.className = 'status-badge done';
+  document.getElementById('statusText').textContent = `✅ ${data.total_records} 条记录`;
+
+  const btn = document.getElementById('startBtn');
+  btn.disabled = false;
+  btn.innerHTML = '<span>▶</span> 开始爬取';
+
+  addTaskToList(taskId, data);
+}
+
+function setFailed(msg) {
+  document.getElementById('progressMessage').textContent = msg;
+  const badge = document.getElementById('statusBadge');
+  badge.className = 'status-badge error';
+  document.getElementById('statusText').textContent = `❌ ${msg}`;
+
+  const btn = document.getElementById('startBtn');
+  btn.disabled = false;
+  btn.innerHTML = '<span>▶</span> 开始爬取';
+}
+
+// ==================== 任务列表 ====================
+function addTaskToList(taskId, data) {
+  const container = document.getElementById('taskListContainer');
+  const empty = container.querySelector('.empty-state');
+  if (empty) empty.remove();
+
+  const cities = selectedCities.join('、');
+  const years = getSelectedYears().join('、');
+
+  const div = document.createElement('div');
+  div.className = 'task-item';
+  div.id = 'task-' + taskId;
+  div.innerHTML = `
+    <div class="task-info">
+      <div class="task-name">${cities} · ${years}年</div>
+      <div class="task-meta">${data.total_records} 条记录</div>
+    </div>
+    <div class="task-actions">
+      <span class="task-status completed">已完成</span>
+      <a href="/api/download/${taskId}" class="btn-download">⬇ 下载 Excel</a>
+    </div>
+  `;
+  container.prepend(div);
+}
+
+// ==================== 加载已有任务 ====================
+function loadTaskHistory() {
+  fetch('/api/tasks')
+    .then(r => r.json())
+    .then(taskList => {
+      const container = document.getElementById('taskListContainer');
+      if (taskList.length === 0) {
+        container.innerHTML = '<div class="empty-state">暂无任务记录</div>';
+        return;
+      }
+
+      let html = '';
+      taskList.forEach(t => {
+        const statusClass = t.status;
+        const statusText = { completed: '已完成', running: '运行中', failed: '失败', queued: '排队中' }[t.status] || t.status;
+        const cities = t.cities.join('、');
+        const years = t.years.join('、');
+
+        html += `
+          <div class="task-item">
+            <div class="task-info">
+              <div class="task-name">${cities} · ${years}年</div>
+              <div class="task-meta">${t.total_records} 条记录</div>
+            </div>
+            <div class="task-actions">
+              <span class="task-status ${statusClass}">${statusText}</span>
+              ${t.status === 'completed' ? `<a href="/api/download/${t.id}" class="btn-download">⬇ 下载 Excel</a>` : ''}
+            </div>
+          </div>
+        `;
+      });
+      container.innerHTML = html;
+    })
+    .catch(() => {});
+}
+
+// ==================== Toast 提示 ====================
+function showToast(message, type) {
+  type = type || 'success';
+  const container = document.getElementById('toastContainer');
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = message;
+  container.appendChild(el);
+  setTimeout(() => {
+    el.style.animation = 'toastOut 0.3s ease-in forwards';
+    setTimeout(() => el.remove(), 300);
+  }, 3000);
+}
+
+// ==================== 初始化 ====================
+initYearChips();
+updateSummary();
+loadTaskHistory();
+</script>
+</body>
+</html>
