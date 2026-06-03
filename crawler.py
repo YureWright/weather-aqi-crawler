@@ -56,11 +56,11 @@ def parse_date(date_str: str) -> tuple:
 def split_wind(wind_str: str) -> tuple:
     """
     解析风向风力字符串，返回 (风向, 风力)
-    输入示例: '西北风 3-4级', '北风 ≤3级', '东风 3-4级'
+    输入示例: '西北风 3-4级', '北风 ≤3级', '无持续风向 ≤3级', '东风 3-4级'
     """
     wind_str = wind_str.strip()
-    # 匹配模式：方向词 + 空格 + 风力等级
-    match = re.match(r'([\u4e00-\u9fff]+风)\s*([\d\-\<\>\≤\u4e00-\u9fff级]+)', wind_str)
+    # 匹配模式：方向词（X风 / 无持续风向）+ 空格 + 风力等级
+    match = re.match(r'(无持续风向|[\u4e00-\u9fff]+风)\s*([\d\-\<\>\≤\u4e00-\u9fff级]+)', wind_str)
     if match:
         return match.group(1), match.group(2)
     # 如果解析失败，返回原字符串和空
@@ -140,32 +140,61 @@ def parse_aqi_table(page_source: str, city_name: str, year: int, month: int) -> 
     return records
 
 
+def _records_have_data(records: list[dict], data_keys: list[str]) -> bool:
+    """检查记录列表中是否有任何一条包含实际数据（非空字符串）"""
+    for r in records:
+        for k in data_keys:
+            if r.get(k, '').strip():
+                return True
+    return False
+
+
+AQI_DATA_KEYS = ["AQI", "PM2.5", "PM10"]
+WEATHER_DATA_KEYS = ["天气1", "最高温", "最低温"]
+
+
 def scrape_aqi_month(city_name: str, city_pinyin: str, year: int, month: int,
-                     browser_page) -> list[dict]:
+                     browser_page, failed_urls: list = None, max_retries: int = 3) -> list[dict]:
     """
     爬取指定城市、年月 的 AQI 数据
+    失败时自动重试 max_retries 次，仍失败则记录到 failed_urls
     """
     url = build_aqi_url(city_pinyin, year, month)
     logger.info(f"开始爬取AQI: {url}")
 
-    try:
-        browser_page.goto(url, timeout=30000, wait_until='networkidle')
-        time.sleep(0.2)  # 等待渲染完成
-        page_source = browser_page.content()
-        records = parse_aqi_table(page_source, city_name, year, month)
-        logger.info(f"AQI爬取成功: {city_name} {year}-{month:02d}, {len(records)}条")
-        return records
-    except Exception as e:
-        warn_logger.error(f"AQI爬取失败 [{url}]: {e}")
-        return []
+    for attempt in range(1, max_retries + 1):
+        try:
+            browser_page.goto(url, timeout=30000, wait_until='domcontentloaded')
+            # 等待 AQI 表格实际渲染到 DOM 中
+            browser_page.wait_for_selector('div.api_month_list table.b', timeout=20000)
+            time.sleep(0.3)
+            page_source = browser_page.content()
+            records = parse_aqi_table(page_source, city_name, year, month)
+            if _records_have_data(records, AQI_DATA_KEYS):
+                logger.info(f"AQI爬取成功: {city_name} {year}-{month:02d}, {len(records)}条")
+                return records
+            # 0 条或所有字段空白 → 重试
+            warn_logger.warning(f"AQI数据空白（{len(records)}条，均无有效值）: {city_name} {year}-{month:02d} (第{attempt}次)")
+        except Exception as e:
+            warn_logger.error(f"AQI爬取失败 [{url}] (第{attempt}/{max_retries}次): {e}")
+
+        if attempt < max_retries:
+            time.sleep(2)  # 重试前等 2 秒
+
+    # 所有重试都失败
+    msg = f"AQI爬取最终失败: {city_name} {year}-{month:02d} ({url})"
+    warn_logger.error(msg)
+    if failed_urls is not None:
+        failed_urls.append({"type": "AQI", "city": city_name, "year": year, "month": month, "url": url})
+    return []
 
 
 def scrape_aqi_year(city_name: str, city_pinyin: str, year: int,
-                    browser_page) -> list[dict]:
+                    browser_page, failed_urls: list = None) -> list[dict]:
     """爬取指定城市、整年的 AQI 数据（1月~12月）"""
     all_records = []
     for month in range(1, 13):
-        month_records = scrape_aqi_month(city_name, city_pinyin, year, month, browser_page)
+        month_records = scrape_aqi_month(city_name, city_pinyin, year, month, browser_page, failed_urls)
         all_records.extend(month_records)
     logger.info(f"AQI全年爬取完成: {city_name} {year}, 共 {len(all_records)} 条记录")
     return all_records
@@ -284,29 +313,42 @@ def parse_weather_table(page_source: str, city_name: str, year: int, month: int)
 
 
 def scrape_weather_month(city_name: str, city_pinyin: str, year: int, month: int,
-                         browser_page) -> list[dict]:
-    """爬取指定城市、年月的天气数据"""
+                         browser_page, failed_urls: list = None, max_retries: int = 3) -> list[dict]:
+    """爬取指定城市、年月的天气数据，失败自动重试"""
     url = build_weather_url(city_pinyin, year, month)
     logger.info(f"开始爬取天气: {url}")
 
-    try:
-        browser_page.goto(url, timeout=30000, wait_until='networkidle')
-        time.sleep(0.2)
-        page_source = browser_page.content()
-        records = parse_weather_table(page_source, city_name, year, month)
-        logger.info(f"天气爬取成功: {city_name} {year}-{month:02d}, {len(records)}条")
-        return records
-    except Exception as e:
-        warn_logger.error(f"天气爬取失败 [{url}]: {e}")
-        return []
+    for attempt in range(1, max_retries + 1):
+        try:
+            browser_page.goto(url, timeout=30000, wait_until='domcontentloaded')
+            # 等待天气表格实际渲染到 DOM 中
+            browser_page.wait_for_selector('table.weather-table', timeout=20000)
+            time.sleep(0.3)
+            page_source = browser_page.content()
+            records = parse_weather_table(page_source, city_name, year, month)
+            if _records_have_data(records, WEATHER_DATA_KEYS):
+                logger.info(f"天气爬取成功: {city_name} {year}-{month:02d}, {len(records)}条")
+                return records
+            warn_logger.warning(f"天气数据空白（{len(records)}条，均无有效值）: {city_name} {year}-{month:02d} (第{attempt}次)")
+        except Exception as e:
+            warn_logger.error(f"天气爬取失败 [{url}] (第{attempt}/{max_retries}次): {e}")
+
+        if attempt < max_retries:
+            time.sleep(2)
+
+    msg = f"天气爬取最终失败: {city_name} {year}-{month:02d} ({url})"
+    warn_logger.error(msg)
+    if failed_urls is not None:
+        failed_urls.append({"type": "天气", "city": city_name, "year": year, "month": month, "url": url})
+    return []
 
 
 def scrape_weather_year(city_name: str, city_pinyin: str, year: int,
-                        browser_page) -> list[dict]:
+                        browser_page, failed_urls: list = None) -> list[dict]:
     """爬取指定城市、整年的天气数据（1月~12月）"""
     all_records = []
     for month in range(1, 13):
-        month_records = scrape_weather_month(city_name, city_pinyin, year, month, browser_page)
+        month_records = scrape_weather_month(city_name, city_pinyin, year, month, browser_page, failed_urls)
         all_records.extend(month_records)
     logger.info(f"天气全年爬取完成: {city_name} {year}, 共 {len(all_records)} 条记录")
     return all_records
@@ -406,6 +448,7 @@ def batch_scrape(city_year_list: list[tuple], output_dir: str = "output",
             raise ValueError(f"不支持的城市: {city_name}，可用城市: {list(CITY_TO_PINYIN.keys())}")
 
     all_data = pd.DataFrame()
+    failed_urls = []  # 收集所有重试后仍失败的页面
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -439,13 +482,13 @@ def batch_scrape(city_year_list: list[tuple], output_dir: str = "output",
                 progress_callback(idx, len(city_year_list), f"正在爬取 {city_name} {year}年（AQI）...")
 
             # 爬取 AQI 数据
-            aqi_records = scrape_aqi_year(city_name, city_pinyin, year, page)
+            aqi_records = scrape_aqi_year(city_name, city_pinyin, year, page, failed_urls)
 
             if progress_callback:
                 progress_callback(idx, len(city_year_list), f"正在爬取 {city_name} {year}年（天气）...")
 
             # 爬取天气数据
-            weather_records = scrape_weather_year(city_name, city_pinyin, year, page)
+            weather_records = scrape_weather_year(city_name, city_pinyin, year, page, failed_urls)
 
             # 合并
             df_city = merge_and_reorder(aqi_records, weather_records)
@@ -458,6 +501,15 @@ def batch_scrape(city_year_list: list[tuple], output_dir: str = "output",
             time.sleep(sleep_interval)  # 请求间隔，避免被屏蔽
 
         browser.close()
+
+    # 输出失败页面汇总
+    if failed_urls:
+        logger.warning("===== 以下页面重试后仍失败 =====")
+        for f in failed_urls:
+            logger.warning(f"  [{f['type']}] {f['city']} {f['year']}-{f['month']:02d}: {f['url']}")
+        logger.warning(f"共 {len(failed_urls)} 个页面爬取失败")
+    else:
+        logger.info("所有页面均爬取成功，无失败记录")
 
     # 去重
     all_data = all_data.drop_duplicates(subset=["城市", "日期"])

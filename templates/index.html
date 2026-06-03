@@ -1090,28 +1090,43 @@ function renderLogs(logs) {
   const logCount = document.getElementById('logCount');
   const prevCount = parseInt(logBody.dataset.count || '0');
 
+  // 后端截断（logs[-200:]）导致数量回落，清空重绘
+  if (logs.length < prevCount) {
+    logBody.innerHTML = '';
+    logBody.dataset.count = '0';
+    // 重新从 0 开始渲染
+    for (let i = 0; i < logs.length; i++) {
+      appendLogEntry(logBody, logs[i]);
+    }
+    logBody.dataset.count = logs.length;
+    logCount.textContent = logs.length + ' 条';
+    logBody.scrollTop = logBody.scrollHeight;
+    return;
+  }
+
   if (logs.length <= prevCount) return;
 
   logCount.textContent = logs.length + ' 条';
 
   // 只追加新增的日志条目
-  const fragment = document.createDocumentFragment();
   for (let i = prevCount; i < logs.length; i++) {
-    const entry = logs[i];
-    const div = document.createElement('div');
-    div.className = 'log-entry';
-    div.innerHTML = `
-      <span class="log-time">${escapeHtml(entry.time)}</span>
-      <span class="log-level ${entry.level}">${entry.level}</span>
-      <span class="log-msg">${escapeHtml(entry.message)}</span>
-    `;
-    fragment.appendChild(div);
+    appendLogEntry(logBody, logs[i]);
   }
-  logBody.appendChild(fragment);
   logBody.dataset.count = logs.length;
 
   // 自动滚动到底部
   logBody.scrollTop = logBody.scrollHeight;
+}
+
+function appendLogEntry(container, entry) {
+  const div = document.createElement('div');
+  div.className = 'log-entry';
+  div.innerHTML = `
+    <span class="log-time">${escapeHtml(entry.time)}</span>
+    <span class="log-level ${entry.level}">${entry.level}</span>
+    <span class="log-msg">${escapeHtml(entry.message)}</span>
+  `;
+  container.appendChild(div);
 }
 
 function escapeHtml(text) {
